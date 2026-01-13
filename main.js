@@ -35,11 +35,15 @@ class Game {
         this.isRunToggleOn = false;
         const btnToggle = document.getElementById('btn-toggle-speed');
         if (btnToggle) {
-            btnToggle.addEventListener('click', (e) => {
+            const toggleHandler = (e) => {
+                e.preventDefault(); // Prevent default touch behavior
                 e.stopPropagation(); // prevent game click
                 this.isRunToggleOn = !this.isRunToggleOn;
                 btnToggle.innerText = this.isRunToggleOn ? '🏃' : '🚶';
-            });
+            };
+            // Listen to both click and touchstart for better responsiveness
+            btnToggle.addEventListener('click', toggleHandler);
+            btnToggle.addEventListener('touchstart', toggleHandler, { passive: false });
         }
 
         // Visual debug for events
@@ -192,7 +196,7 @@ class Game {
         this.ctx.translate(-this.camera.x, -this.camera.y);
 
         // World Bounds
-        this.ctx.strokeStyle = '#333';
+        this.ctx.strokeStyle = '#444'; // Brighter grid border
         this.ctx.lineWidth = 5;
         this.ctx.strokeRect(this.worldBounds.minX, this.worldBounds.minY, 1000, 1000);
 
@@ -200,8 +204,8 @@ class Game {
         this.ctx.fillStyle = '#444';
         this.ctx.fillRect(100, 100, 100, 100);
 
-        // Grid
-        this.ctx.strokeStyle = '#222';
+        // Grid - Brighter for visibility
+        this.ctx.strokeStyle = '#333'; // Brighter grid lines (was #222)
         this.ctx.lineWidth = 1;
         this.ctx.beginPath();
         for(let i = this.worldBounds.minX; i <= this.worldBounds.maxX; i+=100) {
