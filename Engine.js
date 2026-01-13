@@ -526,12 +526,43 @@ class GameEngine {
             }
         }
 
+        // 1. Terrain
         for (const chunk of visibleChunks) this.drawChunkTerrain(ctx, chunk);
-        for (const chunk of visibleChunks) this.drawChunkObjectsBottom(ctx, chunk);
         
+        // 2. Target Marker
         this.drawTargetMarker(ctx);
-        this.drawCharacter(ctx, state.player); 
 
+        // 3. Prepare Render List (Objects + Player)
+        const renderList = [];
+        const tileSize = world.tileSize;
+        const chunkSize = world.chunkSize;
+
+        for (const chunk of visibleChunks) {
+             const chunkPxX = chunk.cx * chunkSize * tileSize;
+             const chunkPxY = chunk.cy * chunkSize * tileSize;
+
+             for(let obj of chunk.objects) {
+                 const px = chunkPxX + obj.x * tileSize;
+                 const py = chunkPxY + obj.y * tileSize;
+                 renderList.push({ type: 'object', y: py, obj: obj, px: px, py: py });
+             }
+        }
+
+        renderList.push({ type: 'player', y: state.player.y, player: state.player });
+
+        // Sort by Y
+        renderList.sort((a, b) => a.y - b.y);
+
+        // Draw sorted
+        for (const item of renderList) {
+            if (item.type === 'object') {
+                this.drawObjectBase(ctx, item.obj, item.px, item.py);
+            } else if (item.type === 'player') {
+                this.drawCharacter(ctx, item.player);
+            }
+        }
+
+        // 4. Object Tops
         for (const chunk of visibleChunks) this.drawChunkObjectsTop(ctx, chunk);
 
         ctx.restore();
