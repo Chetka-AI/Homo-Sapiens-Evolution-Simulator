@@ -4,90 +4,56 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>EvoSim v5.0 - Interaction & Inventory</title>
+    <title>EvoSim v9.0 - Fast Performance</title>
     <link rel="stylesheet" href="style.css">
-    <!-- Biblioteka Joysticka -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
 </head>
 
 <body>
     
-    <!-- Warstwa Interfejsu (UI) -->
     <div id="ui-layer">
-        <!-- Lewy górny róg: Statystyki -->
         <div class="panel-stats">
             <div class="stat-row">
                 <span class="label">POZYCJA:</span>
                 <span id="pos-info" class="value">0m, 0m</span>
             </div>
-            
-            <div class="bar-container">
-                <span class="icon">♥</span>
-                <div class="bar-bg"><div id="bar-health" class="bar-fill health"></div></div>
-            </div>
-            
-            <div class="bar-container">
-                <span class="icon">⚡</span>
-                <div class="bar-bg"><div id="bar-stamina" class="bar-fill stamina"></div></div>
-            </div>
-
-            <div class="bar-container">
-                <span class="icon">🍖</span>
-                <div class="bar-bg"><div id="bar-hunger" class="bar-fill hunger"></div></div>
-            </div>
-
-            <div class="bar-container">
-                <span class="icon">💧</span>
-                <div class="bar-bg"><div id="bar-thirst" class="bar-fill thirst"></div></div>
-            </div>
+            <div class="bar-container"><span class="icon">♥</span><div class="bar-bg"><div id="bar-health" class="bar-fill health"></div></div></div>
+            <div class="bar-container"><span class="icon">⚡</span><div class="bar-bg"><div id="bar-stamina" class="bar-fill stamina"></div></div></div>
+            <div class="bar-container"><span class="icon">🍖</span><div class="bar-bg"><div id="bar-hunger" class="bar-fill hunger"></div></div></div>
+            <div class="bar-container"><span class="icon">💧</span><div class="bar-bg"><div id="bar-thirst" class="bar-fill thirst"></div></div></div>
         </div>
-
-        <!-- Przycisk otwierania ekwipunku -->
         <button id="btn-inventory" class="ui-btn">🎒</button>
     </div>
 
-    <!-- Boczne Menu (Ekwipunek) -->
     <div id="side-menu" class="side-panel hidden">
-        <div class="panel-header">
-            <span>Ekwipunek</span>
-            <button id="btn-close-menu">✕</button>
-        </div>
+        <div class="panel-header"><span>Ekwipunek</span><button id="btn-close-menu">✕</button></div>
         <div class="inventory-grid" id="inventory-slots">
-            <!-- Sloty generowane przez JS -->
-            <div class="inv-slot empty"></div>
-            <div class="inv-slot empty"></div>
-            <div class="inv-slot empty"></div>
-            <div class="inv-slot empty"></div>
-            <div class="inv-slot empty"></div>
-            <div class="inv-slot empty"></div>
+            <div class="inv-slot empty"></div><div class="inv-slot empty"></div><div class="inv-slot empty"></div>
+            <div class="inv-slot empty"></div><div class="inv-slot empty"></div><div class="inv-slot empty"></div>
         </div>
-        <div class="panel-info">
-            <p>Podręczny magazyn</p>
-            <small>Miejsce na kamienie, patyki i inne znaleziska.</small>
-        </div>
+        <div class="panel-info"><p>Podręczny magazyn</p></div>
     </div>
 
-    <!-- Menu Kontekstowe (Interakcja w świecie) -->
     <div id="context-menu" class="context-popup hidden">
         <div class="context-item">👁️ Zbadaj</div>
         <div class="context-item">✋ Podnieś</div>
         <div class="context-item">⚙️ Użyj</div>
     </div>
     
-    <!-- Warstwa dotykowa dla inputu -->
     <div id="touch-overlay"></div>
-    
-    <!-- Płótno Gry -->
     <canvas id="gameCanvas"></canvas>
     
-    <!-- Skrypty -->
+    <script src="generators/TreeGenerator.js"></script>
+    <script src="generators/GrassGenerator.js"></script>
+    <script src="Character.js"></script>
+    <script src="World.js"></script>
     <script src="input.js"></script>
     <script src="Engine.js"></script>
+    
     <script>
         window.onload = () => new GameEngine();
     </script>
 </body>
-
 </html>
 
 
