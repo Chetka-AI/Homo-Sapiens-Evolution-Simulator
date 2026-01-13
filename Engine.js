@@ -63,6 +63,7 @@ class GameEngine {
         this.resize();
         window.addEventListener('resize', () => this.resize());
         this.inputHandler = new InputHandler(this);
+        this.setupContextMenuListeners(); // Add listener setup
         this.updateUI(); 
         this.gameLoop();
     }
@@ -78,19 +79,49 @@ class GameEngine {
          this.state.ui.inventoryOpen ? el.classList.remove('hidden') : el.classList.add('hidden');
          if(this.state.ui.inventoryOpen) this.hideContextMenu();
     }
+    setupContextMenuListeners() {
+        const items = document.querySelectorAll('.context-item');
+        // 0: Zbadaj, 1: Podnieś, 2: Użyj
+        items[0].addEventListener('click', () => this.handleContextAction('examine'));
+        items[1].addEventListener('click', () => this.handleContextAction('pickup'));
+        items[2].addEventListener('click', () => this.handleContextAction('use'));
+    }
+
     showContextMenu(sx, sy) {
         const menu = document.getElementById('context-menu');
         const worldPos = this.screenToWorld(sx, sy);
+
+        // Zapisz pozycję interakcji
+        this.lastInteractionPos = worldPos;
+
         const obj = this.world.getObjectAtWorldPos(worldPos.x, worldPos.y);
         const items = menu.querySelectorAll('.context-item');
         
+        // Reset widoczności
+        items.forEach(i => i.style.display = 'block');
+
         if (obj) {
-            let name = obj.type === 'tree' ? `Drzewo (${obj.subType})` : 'Kamień';
+            let name = 'Obiekt';
+            if (obj.type === 'tree') name = `Drzewo (${obj.subType})`;
+            if (obj.type === 'rock') name = 'Kamień';
+            if (obj.type === 'loot') name = `Leży: ${obj.subType}`;
+
             items[0].innerText = `👁️ Zbadaj: ${name}`;
-            items[1].style.display = 'block'; 
+
+            if (obj.type === 'tree') {
+                items[1].style.display = 'none'; // Nie można podnieść drzewa
+                items[2].innerText = '🪓 Ścinaj';
+            } else if (obj.type === 'rock') {
+                 items[1].innerText = '⛏️ Krusz';
+                 items[2].style.display = 'none';
+            } else if (obj.type === 'loot') {
+                items[1].innerText = '✋ Podnieś';
+                items[2].style.display = 'none';
+            }
         } else {
             items[0].innerText = "👁️ Zbadaj teren";
-            items[1].style.display = 'none'; 
+            items[1].innerText = "🌿 Zbieraj"; // Zbieranie z ziemi (trawa)
+            items[2].style.display = 'none';
         }
 
         let px = sx + 10, py = sy + 10;
@@ -101,6 +132,82 @@ class GameEngine {
         this.state.ui.contextMenuOpen = true;
         this.state.navigation.target = null;
     }
+
+    handleContextAction(action) {
+        const pos = this.lastInteractionPos;
+        if (!pos) return;
+
+        const obj = this.world.getObjectAtWorldPos(pos.x, pos.y);
+        const player = this.state.player;
+
+        // Sprawdź dystans
+        const dist = Math.hypot(player.x - pos.x, player.y - pos.y);
+        if (dist > 200) { // 2 metry
+            alert("Za daleko!"); // Placeholder UI
+            this.hideContextMenu();
+            return;
+        }
+
+        if (action === 'examine') {
+            console.log("Examining:", obj || "Ground");
+        }
+        else if (action === 'pickup') {
+            if (obj) {
+                if (obj.type === 'loot') {
+                    if (player.addItem(obj.subType)) {
+                        this.world.removeObject(obj.id);
+                    } else {
+                        alert("Ekwipunek pełny!");
+                    }
+                } else if (obj.type === 'rock') {
+                    // Kamień -> Stone
+                    if (player.addItem('stone')) {
+                         this.world.removeObject(obj.id);
+                    }
+                }
+            } else {
+                // Teren
+                const cx = Math.floor(pos.x / 100 / 16);
+                const cy = Math.floor(pos.y / 100 / 16);
+                const chunk = this.world.getChunk(cx, cy);
+                const tx = Math.floor((pos.x / 100) - (cx * 16));
+                const ty = Math.floor((pos.y / 100) - (cy * 16));
+
+                if (tx >= 0 && tx < 16 && ty >= 0 && ty < 16) {
+                    const tile = chunk.tiles[tx][ty];
+                    if (tile.grassData) {
+                        if (player.addItem('grass')) {
+                            // Opcjonalnie: Usuń trawę z kafelka (tile.grassData = null)
+                            // Na razie zostawiamy, można zbierać nieskończoność?
+                            // Lepiej usuńmy dla realizmu
+                            tile.grassData = null;
+                        }
+                    } else {
+                        alert("Nic tu nie ma do zebrania.");
+                    }
+                }
+            }
+        }
+        else if (action === 'use') {
+             if (obj && obj.type === 'tree') {
+                 // Ścinanie
+                 this.world.removeObject(obj.id);
+                 this.world.spawnLoot('wood', obj.x * 100 + (obj.cx||0)*1600, obj.y * 100 + (obj.cy||0)*1600);
+                 // Uwaga: WorldObject przechowuje lokalne koordynaty, ale spawnLoot oczekuje globalnych (żeby przeliczyć na chunk)
+                 // Wcześniej w drawObjectBase robiłem przeliczenie.
+                 // Tutaj muszę pobrać poprawne globalne koordynaty.
+                 // Ponieważ `getObjectAtWorldPos` iteruje i zwraca obiekt z chunka, `obj` to referencja do obiektu w chunku.
+                 // Obiekt nie ma `cx` `cy` w sobie w obecnej implementacji World.js, tylko x,y lokalne.
+                 // Ale `getObjectAtWorldPos` zwraca referencję. Muszę wiedzieć z którego chunka pochodzi, albo użyć `pos`.
+                 // Użyjmy `pos` z kliknięcia, jest wystarczająco dokładne.
+                 this.world.spawnLoot('wood', pos.x, pos.y);
+             }
+        }
+
+        this.hideContextMenu();
+        this.updateUI();
+    }
+
     hideContextMenu() {
         document.getElementById('context-menu').classList.add('hidden');
         this.state.ui.contextMenuOpen = false;
@@ -178,6 +285,30 @@ class GameEngine {
         document.getElementById('bar-stamina').style.width = `${v.stamina}%`;
         document.getElementById('bar-hunger').style.width = `${v.hunger}%`;
         document.getElementById('bar-thirst').style.width = `${v.thirst}%`;
+
+        // Update Inventory UI
+        const slots = document.getElementById('inventory-slots').children;
+        for (let i = 0; i < 6; i++) {
+             const slot = slots[i];
+             const item = p.inventory[i];
+             if (item) {
+                 slot.className = 'inv-slot filled';
+                 slot.innerText = item.count > 1 ? `${this.getItemIcon(item.type)} x${item.count}` : this.getItemIcon(item.type);
+             } else {
+                 slot.className = 'inv-slot empty';
+                 slot.innerText = '';
+             }
+        }
+    }
+
+    getItemIcon(type) {
+        const map = {
+            'wood': '🪵',
+            'stone': '🪨',
+            'grass': '🌿',
+            'flower': '🌻'
+        };
+        return map[type] || '❓';
     }
 
     draw() {
@@ -334,6 +465,34 @@ class GameEngine {
             // Detal kamienia
             ctx.fillStyle = 'rgba(0,0,0,0.1)';
             ctx.beginPath(); ctx.arc(-rd.radius*0.3, -rd.radius*0.3, rd.radius*0.4, 0, Math.PI*2); ctx.fill();
+            ctx.restore();
+        } else if (obj.type === 'loot') {
+            const rd = obj.renderData;
+            ctx.save();
+            ctx.translate(x, y);
+
+            // Unoszenie się
+            const floatY = Math.sin(Date.now() * 0.005) * 5;
+            ctx.translate(0, floatY - 10);
+
+            // Prosty kształt lootu
+            ctx.fillStyle = '#fff';
+            if (obj.subType === 'wood') ctx.fillStyle = '#8d6e63';
+            if (obj.subType === 'stone') ctx.fillStyle = '#9e9e9e';
+            if (obj.subType === 'grass') ctx.fillStyle = '#66bb6a';
+
+            ctx.beginPath();
+            ctx.rect(-10, -10, 20, 20);
+            ctx.fill();
+            ctx.strokeStyle = '#333';
+            ctx.stroke();
+
+            // Label
+            ctx.fillStyle = 'white';
+            ctx.font = '10px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(obj.subType, 0, -15);
+
             ctx.restore();
         }
     }

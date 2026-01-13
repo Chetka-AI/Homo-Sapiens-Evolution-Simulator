@@ -264,4 +264,33 @@ class WorldManager {
         }
         return null;
     }
+
+    removeObject(objId) {
+        // Musimy przeszukać chunki, ale optymalniej byłoby wiedzieć gdzie jest
+        // Na razie brute-force po załadowanych chunkach, albo zakładamy że interakcja jest blisko gracza
+        for (const chunk of this.chunks.values()) {
+            const idx = chunk.objects.findIndex(o => o.id === objId);
+            if (idx !== -1) {
+                chunk.objects.splice(idx, 1);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    spawnLoot(type, wx, wy) {
+        const cx = Math.floor(wx / 100 / WORLD_CONFIG.CHUNK_SIZE);
+        const cy = Math.floor(wy / 100 / WORLD_CONFIG.CHUNK_SIZE);
+        const chunk = this.getChunk(cx, cy);
+
+        const lx = (wx / 100) - (cx * WORLD_CONFIG.CHUNK_SIZE);
+        const ly = (wy / 100) - (cy * WORLD_CONFIG.CHUNK_SIZE);
+
+        const loot = new WorldObject('loot', lx, ly, {
+            subType: type,
+            collisionRadius: 0, // Loot nie blokuje ruchu
+            renderData: { type: 'loot', itemType: type, radius: 15, color: '#ffd700' }
+        });
+        chunk.objects.push(loot);
+    }
 }

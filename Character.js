@@ -14,6 +14,10 @@ class Character {
         this.PIXELS_PER_METER = 100; // 100px = 1m
         this.STRIDE_LENGTH = 1.4 * this.PIXELS_PER_METER;
         
+        // Ekwipunek
+        this.inventory = [];
+        this.maxInventorySize = 6;
+
         // Parametry życiowe
         this.vitals = {
             health: 100,
@@ -102,5 +106,39 @@ class Character {
         }
         
         this.age += dt * 0.001;
+    }
+
+    addItem(type, count = 1) {
+        // Sprawdź czy przedmiot już jest (stackowanie)
+        const existing = this.inventory.find(i => i.type === type);
+        if (existing) {
+            existing.count += count;
+            return true;
+        }
+
+        // Jeśli nie, dodaj do nowego slotu
+        if (this.inventory.length < this.maxInventorySize) {
+            this.inventory.push({ type: type, count: count });
+            return true;
+        }
+
+        return false; // Pełny ekwipunek
+    }
+
+    hasItem(type, count = 1) {
+        const item = this.inventory.find(i => i.type === type);
+        return item && item.count >= count;
+    }
+
+    removeItem(type, count = 1) {
+        const index = this.inventory.findIndex(i => i.type === type);
+        if (index !== -1) {
+            this.inventory[index].count -= count;
+            if (this.inventory[index].count <= 0) {
+                this.inventory.splice(index, 1);
+            }
+            return true;
+        }
+        return false;
     }
 }
