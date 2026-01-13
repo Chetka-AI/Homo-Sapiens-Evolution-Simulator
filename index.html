@@ -35,6 +35,12 @@
             z-index: 10;
         }
         /* NippleJS overrides */
+        .nipple {
+            display: none !important; /* Hidden by default */
+        }
+        .nipple.active-joystick {
+            display: block !important; /* Visible only when logic confirms */
+        }
         .nipple .front {
             background: rgba(255, 255, 255, 0.5) !important;
             border: 2px solid rgba(255, 255, 255, 0.8) !important;

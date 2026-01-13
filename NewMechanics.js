@@ -18,7 +18,7 @@ export class InputController {
             TAP_MAX_DURATION: 250,
             DOUBLE_TAP_TIME: 350,
             JOYSTICK_MIN_DIST: 15, // Threshold 15px
-            JOYSTICK_MIN_TIME: 100,
+            JOYSTICK_MIN_TIME: 200, // Delay 200ms
             LONG_PRESS_TIME: 600,
             LONG_PRESS_MAX_MOVE: 10
         };
@@ -97,23 +97,12 @@ export class InputController {
         });
 
         this.touch.manager.on('start', (evt, data) => {
-            if (this.state.isLongPressTriggered || this.state.isMultitouch) return;
-
+            // Nipple created, but hidden by CSS .nipple { display: none }
             this.touch.activeElement = data.el;
-            if (this.touch.activeElement) {
-                // Hide initially, show only if confirmed as joystick
-                this.touch.activeElement.style.opacity = '0';
-                this.touch.activeElement.style.transition = 'opacity 0.2s ease-out';
-            }
-
             this.state.isJoystickActive = false;
         });
 
         this.touch.manager.on('move', (evt, data) => {
-            // Strict single touch check: evt.target.touches length must be 1 (if available)
-            // But NippleJS event doesn't give 'touches' list directly in 'evt'.
-            // We rely on our global 'isMultitouch' flag and checks.
-
             if (this.state.isMultitouch || this.state.isLongPressTriggered) {
                 this.forceHideJoystick();
                 return;
@@ -127,14 +116,17 @@ export class InputController {
             // Check Joystick Thresholds
             if (!this.state.isJoystickActive) {
                 const duration = Date.now() - this.touch.startTime;
-                // STRICT condition: Only activate if one finger, distance > 15px
-                // Note: isMultitouch is updated by native touchstart listeners.
+
+                // STRICT condition:
+                // 1. Distance > 15px
+                // 2. Duration > 200ms
+                // 3. No multitouch
                 if (data.distance > this.config.JOYSTICK_MIN_DIST && duration > this.config.JOYSTICK_MIN_TIME && !this.state.isMultitouch) {
                     this.state.isJoystickActive = true;
-                    clearTimeout(this.touch.longPressTimeout); // User intends to move
+                    clearTimeout(this.touch.longPressTimeout);
 
                     if (this.touch.activeElement) {
-                        this.touch.activeElement.style.opacity = '1';
+                        this.touch.activeElement.classList.add('active-joystick');
                     }
                 }
             }
@@ -166,7 +158,7 @@ export class InputController {
         this.state.x = 0;
         this.state.y = 0;
         if (this.touch.activeElement) {
-            this.touch.activeElement.style.opacity = '0';
+            this.touch.activeElement.classList.remove('active-joystick');
         }
     }
 
