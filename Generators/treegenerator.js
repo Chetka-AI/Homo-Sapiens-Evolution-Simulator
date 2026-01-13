@@ -1,110 +1,171 @@
 /**
  * TreeGenerator.js
- * Generuje dane dla WIELKICH drzew z koroną (Overhead) i pniem (Ground).
- * - Dęby: 2-8m korona, pnie 20-100cm. Chmury liści.
- * - Sosny: Warstwowe trójkąty.
+ * Generuje dane dla drzew zoptymalizowanych pod kątem wydajności.
+ * ZMIANY:
+ * - Przywrócono oryginalną paletę kolorów (ładne zielenie) z przesłanego pliku.
+ * - Usunięto kolory "zgniłe" i "brudne".
+ * - Zachowano podział na Palety, aby jedno drzewo miało spójny odcień 
+ * (nie mieszało jasnego oliwkowego z ciemną zielenią).
  */
 
 class TreeGenerator {
     constructor() {
         this.configs = {
             'pine': {
-                trunkColor: '#3e2723',
+                // Sosna: Ciemna kora, jasne/żółtawe drewno
+                barkColor: '#3E2723',
+                woodColor: '#D7CCC8',
+                trunkMin: 15,
+                trunkMax: 35,
+                
                 // Iglaste: Korona to stos trójkątów
-                layerCountMin: 4,
-                layerCountMax: 7,
-                baseRadius: 200, // 2m szerokości u podstawy korony
-                topRadius: 50,
-                layerHeight: 60, // Odstęp między piętrami
-                colors: ['#2d6a4f', '#1b4332', '#40916c'] // Różne odcienie zieleni
+                layerCountMin: 3,
+                layerCountMax: 5,
+                baseRadius: 180,
+                topRadius: 40,
+                layerHeight: 60,
+                
+                // PALETY OPARTE NA ORYGINALNYM PLIKU (Naturalne Zielenie)
+                colorPalettes: [
+                    // Paleta 1: Klasyczna sosnowa zieleń (Original Mix)
+                    ['#2d6a4f', '#1b4332', '#40916c'],
+                    // Paleta 2: Ciemniejszy bór (Deep Forest)
+                    ['#1b4332', '#0f261c', '#20402e'],
+                    // Paleta 3: Żywa zieleń iglasta
+                    ['#2d6a4f', '#3c8c69', '#1f4a37']
+                ]
             },
             'oak': {
-                trunkColor: '#4e342e',
-                // Liściaste: Korona to wielkie bloby
-                blobCount: 15,
-                crownRadiusMin: 200, // min 2m
-                crownRadiusMax: 600, // max 6m (do 8m z losowością)
-                branchCount: 8,
-                colors: ['#588157', '#3a5a40', '#a3b18a'] // Odcienie dębu
+                // Dąb: Brązowa kora, beżowe drewno
+                barkColor: '#4E342E',
+                woodColor: '#A1887F',
+                trunkMin: 25,
+                trunkMax: 50,
+                
+                // Liściaste: Zwarte "kleksy"
+                blobCount: 6,
+                crownRadiusMin: 200,
+                crownRadiusMax: 350,
+                
+                // PALETY OPARTE NA ORYGINALNYM PLIKU (Liściaste Zielenie)
+                colorPalettes: [
+                    // Paleta 1: Głęboka zieleń (Hunter Green)
+                    ['#3a5a40', '#2a402d', '#4a6b51'],
+                    // Paleta 2: Zieleń szałwiowa (Sage Green)
+                    ['#588157', '#4c704b', '#658f64'],
+                    // Paleta 3: Oliwkowa (Olive Green) - oddzielona od ciemnej zieleni
+                    ['#a3b18a', '#8a9a5b', '#7a8b6e']
+                ]
             },
             'birch': {
-                trunkColor: '#d7ccc8',
-                blobCount: 12,
+                // Brzoza: Jasna/Szara kora, bardzo jasne drewno
+                barkColor: '#CFD8DC',
+                woodColor: '#F5F5F5',
+                trunkMin: 15,
+                trunkMax: 30,
+                
+                // Liściaste
+                blobCount: 5,
                 crownRadiusMin: 180,
-                crownRadiusMax: 400,
-                branchCount: 6,
-                colors: ['#a3b18a', '#dad7cd', '#8f9e83']
+                crownRadiusMax: 300,
+                
+                // PALETY OPARTE NA ORYGINALNYM PLIKU (Jasne Zielenie)
+                colorPalettes: [
+                    // Paleta 1: Bardzo jasna/blada (Pale)
+                    ['#dad7cd', '#c4c1b4', '#b0ad9f'],
+                    // Paleta 2: Mchowa zieleń (Moss)
+                    ['#8f9e83', '#76856a', '#aebd9d'],
+                    // Paleta 3: Oliwkowa jasna (Light Olive)
+                    ['#a3b18a', '#8f9e83', '#b5c99a']
+                ]
             }
         };
     }
     
+    /**
+     * Generuje dane pojedynczego drzewa na podstawie typu i nasiona (pozycji)
+     */
     generate(type, seedX, seedY) {
         const config = this.configs[type] || this.configs['oak'];
-        const rng = (offset) => Math.abs(Math.sin(seedX * 12.9898 + seedY * 78.233 + offset) * 43758.5453) % 1;
         
-        // Średnica pnia (20cm - 80cm) -> 20px - 80px
-        const trunkRadius = 15 + rng(1) * 25;
+        // Deterministyczny generator liczb losowych
+        const rng = (offset) => {
+            const val = Math.sin(seedX * 12.9898 + seedY * 78.233 + offset) * 43758.5453;
+            return val - Math.floor(val);
+        };
+        
+        // --- WYBÓR PALETY KOLORÓW DLA TEGO DRZEWA ---
+        // Losujemy deterministycznie jedną paletę z dostępnych dla danego gatunku.
+        // Dzięki temu całe drzewo będzie utrzymane w jednej tonacji.
+        const palettes = config.colorPalettes;
+        const paletteIndex = Math.floor(rng(999) * palettes.length);
+        const chosenPalette = palettes[paletteIndex];
+        
+        // Obliczanie średnicy pnia
+        const trunkDiff = config.trunkMax - config.trunkMin;
+        const trunkRadius = config.trunkMin + rng(1) * trunkDiff;
         
         const treeData = {
-            type: type, // 'pine' lub 'oak'/'birch'
-            trunkColor: config.trunkColor,
+            type: type,
+            barkColor: config.barkColor,
+            woodColor: config.woodColor,
             trunkRadius: trunkRadius,
             crownData: {}
         };
         
         if (type === 'pine') {
-            // Generowanie Iglastego (Warstwy trójkątów)
+            // --- IGLASTE ---
             const layers = [];
-            const count = Math.floor(config.layerCountMin + rng(2) * (config.layerCountMax - config.layerCountMin));
+            const count = Math.floor(config.layerCountMin + rng(2) * (config.layerCountMax - config.layerCountMin + 1));
             
             for (let i = 0; i < count; i++) {
-                const progress = i / count; // 0 (dół) do 1 (góra)
-                // Promień maleje ku górze
-                const r = config.baseRadius * (1 - progress * 0.8) + rng(i + 10) * 40;
+                const progress = i / count;
+                const r = config.baseRadius * (1 - progress * 0.8) + rng(i + 10) * 30;
                 
                 layers.push({
                     radius: r,
-                    offsetY: -i * config.layerHeight, // Wyższe piętra są przesunięte w renderze (choć to top-down)
-                    points: 12 + Math.floor(rng(i) * 5), // Ilość wierzchołków gwiazdy
-                    color: config.colors[Math.floor(rng(i + 50) * config.colors.length)],
-                    angleOffset: rng(i + 99) // Obrót warstwy
+                    offsetY: -i * config.layerHeight,
+                    points: 7 + Math.floor(rng(i) * 3),
+                    // Używamy kolorów TYLKO z wybranej palety
+                    color: chosenPalette[Math.floor(rng(i + 50) * chosenPalette.length)],
+                    angleOffset: rng(i + 99) * Math.PI
                 });
             }
             treeData.crownData.layers = layers;
             
         } else {
-            // Generowanie Liściastego (Bloby i Gałęzie)
+            // --- LIŚCIASTE ---
             const crownRadius = config.crownRadiusMin + rng(3) * (config.crownRadiusMax - config.crownRadiusMin);
-            
-            // Gałęzie (Promienie)
-            const branches = [];
-            for (let i = 0; i < config.branchCount; i++) {
-                const angle = (i / config.branchCount) * Math.PI * 2 + (rng(i) * 0.5);
-                const len = crownRadius * 0.6 + rng(i + 10) * (crownRadius * 0.4);
-                branches.push({
-                    angle: angle,
-                    length: len,
-                    width: trunkRadius * 0.5 * (1 - len / crownRadius) // Zwężają się
-                });
-            }
-            
-            // Bloby (Plamy liści)
             const blobs = [];
-            for (let i = 0; i < config.blobCount; i++) {
-                const angle = rng(i + 50) * Math.PI * 2;
-                const dist = rng(i + 100) * crownRadius * 0.8; // Rozrzut wewnątrz korony
-                const r = 60 + rng(i + 200) * 100; // Wielkie plamy (60px - 160px)
+            
+            // 1. Główny kleks centralny
+            blobs.push({
+                x: 0,
+                y: 0,
+                r: crownRadius * 0.75,
+                // Używamy kolorów TYLKO z wybranej palety
+                color: chosenPalette[Math.floor(rng(100) * chosenPalette.length)]
+            });
+            
+            // 2. Wianuszek otaczający
+            const surroundingCount = config.blobCount;
+            for (let i = 0; i < surroundingCount; i++) {
+                const baseAngle = (i / surroundingCount) * Math.PI * 2;
+                const angleJitter = rng(i + 200) * 0.5;
+                const finalAngle = baseAngle + angleJitter;
+                const dist = crownRadius * 0.5;
+                const r = crownRadius * (0.4 + rng(i + 300) * 0.2);
                 
                 blobs.push({
-                    x: Math.cos(angle) * dist,
-                    y: Math.sin(angle) * dist,
+                    x: Math.cos(finalAngle) * dist,
+                    y: Math.sin(finalAngle) * dist,
                     r: r,
-                    color: config.colors[Math.floor(rng(i + 90) * config.colors.length)]
+                    // Używamy kolorów TYLKO z wybranej palety
+                    color: chosenPalette[Math.floor(rng(i + 150) * chosenPalette.length)]
                 });
             }
             
             treeData.crownData.radius = crownRadius;
-            treeData.crownData.branches = branches;
             treeData.crownData.blobs = blobs;
         }
         
