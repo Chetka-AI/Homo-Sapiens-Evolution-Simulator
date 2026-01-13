@@ -1,6 +1,8 @@
 /**
- * Character.js - v1.0
+ * Character.js
  * Moduł odpowiedzialny za statystyki, stan fizjologiczny i animację postaci.
+ * ZMIANY:
+ * - Wzmocniona logika dodawania do ekwipunku.
  */
 
 class Character {
@@ -10,11 +12,15 @@ class Character {
         this.rotation = 0;
         this.age = 0;
         
-        // Stałe świata
-        this.PIXELS_PER_METER = 100; // 100px = 1m
+        this.PIXELS_PER_METER = 100;
         this.STRIDE_LENGTH = 1.4 * this.PIXELS_PER_METER;
         
-        // Parametry życiowe
+        this.attributes = {
+            strength: 10, // Udźwig: base + strength * 2
+            endurance: 10,
+            agility: 10
+        };
+        
         this.vitals = {
             health: 100,
             maxHealth: 100,
@@ -24,20 +30,19 @@ class Character {
             thirst: 100,
         };
         
-        // Statystyki fizyczne
         this.stats = {
             baseSpeed: 1.4,
             runMultiplier: 3.0,
-            // 0.008 na klatkę przy 60fps ~ 0.5 punktu na sekundę.
-            // 100 punktów = 200 sekund biegu = 3.3 minuty.
-            // Prędkość biegu to ok. 4.2px/f * 60 = 252px/s = 2.5m/s
-            // 200s * 2.5m/s = 500m dystansu. (Wartość bezpieczna)
-            staminaDrain: 0.008,
-            staminaRegen: 0.05, // Regeneracja też wolniejsza, ale stała
-            metabolism: 0.002
+            baseStaminaDrain: 0.003,
+            staminaRegen: 0.05,
+            baseMetabolism: 0.002
         };
         
-        // Stan animacji
+        // Ekwipunek
+        this.inventory = [];
+        this.currentLoad = 0; // Aktualna waga w kg
+        this.maxLoad = 20 + this.attributes.strength * 2;
+        
         this.anim = {
             walkCycle: 0,
             rightLegOffset: 0,
@@ -48,11 +53,71 @@ class Character {
         };
     }
     
+    // Funkcja interakcji z obiektem/światem
+    interact(world, actionType) {
+        // Sprawdzamy co jest pod nogami
+        const obj = world.getObjectAtWorldPos(this.x, this.y);
+        
+        if (actionType === 'pickup') {
+            if (obj && obj.collectible) {
+                // Sprawdź udźwig
+                const itemWeight = Number(obj.weight) || 0.5; // Zabezpieczenie
+                
+                if (this.currentLoad + itemWeight > this.maxLoad) {
+                    console.log("Za ciężkie!");
+                    return "too_heavy";
+                }
+                
+                // Dodaj do ekwipunku
+                this.inventory.push({
+                    type: obj.subType || obj.type,
+                    weight: itemWeight
+                });
+                this.currentLoad += itemWeight;
+                
+                // Usuń ze świata
+                const removed = world.removeObject(obj);
+                if (removed) {
+                    console.log(`Podniesiono: ${obj.subType || obj.type}`);
+                    return "picked_up";
+                } else {
+                    console.error("Błąd usuwania obiektu ze świata!");
+                    return "error";
+                }
+            } else if (obj && !obj.collectible) {
+                console.log("Tego nie można podnieść.");
+                return "not_collectible";
+            } else {
+                console.log("Brak przedmiotu do podniesienia lub brak naczynia na wodę/piasek.");
+                return "nothing_to_pickup";
+            }
+        }
+        
+        if (actionType === 'drink') {
+            if (this.vitals.thirst < 100) {
+                this.vitals.thirst = Math.min(100, this.vitals.thirst + 50);
+                console.log("Napito się.");
+                return "drank";
+            } else {
+                console.log("Nie chce mi się pić.");
+                return "full";
+            }
+        }
+        
+        return "none";
+    }
+    
     update(dt, isMoving, isRunning, actualDistanceMoved) {
-        // 1. Vitals
-        let metabolicRate = this.stats.metabolism;
+        const enduranceFactor = Math.max(0.5, 1.0 - (this.attributes.endurance * 0.01));
+        
+        let metabolicRate = this.stats.baseMetabolism;
         if (isMoving) metabolicRate *= 1.5;
         if (isRunning) metabolicRate *= 3.0;
+        
+        // Kara za ciężar
+        let loadPenalty = this.currentLoad / this.maxLoad;
+        metabolicRate *= (1 + loadPenalty);
+        metabolicRate *= enduranceFactor;
         
         this.vitals.hunger = Math.max(0, this.vitals.hunger - metabolicRate);
         this.vitals.thirst = Math.max(0, this.vitals.thirst - (metabolicRate * 1.5));
@@ -65,30 +130,30 @@ class Character {
             }
         }
         
-        // 2. Stamina (Zaktualizowana logika)
+        // Stamina
         if (isRunning && isMoving) {
-            this.vitals.stamina = Math.max(0, this.vitals.stamina - this.stats.staminaDrain);
+            let currentDrain = this.stats.baseStaminaDrain * enduranceFactor;
+            currentDrain *= (1 + loadPenalty * 2);
+            this.vitals.stamina = Math.max(0, this.vitals.stamina - currentDrain);
         } else {
-            // Regeneracja działa zawsze gdy nie biegniemy, nawet jak idziemy (ale wolniej)
             let regen = this.stats.staminaRegen;
-            if (isMoving) regen *= 0.5; // Regeneracja podczas chodu jest wolniejsza
+            if (isMoving) regen *= 0.5;
+            regen *= (1 + this.attributes.endurance * 0.005);
+            regen *= Math.max(0.1, 1.0 - loadPenalty);
+            
             this.vitals.stamina = Math.min(this.vitals.maxStamina, this.vitals.stamina + regen);
         }
         
-        // 3. Synchronizacja Animacji
+        // Animacja
         if (isMoving && actualDistanceMoved > 0.01) {
             const strideFraction = actualDistanceMoved / this.STRIDE_LENGTH;
             this.anim.walkCycle += strideFraction * (Math.PI * 2);
             
-            // Zwiększony zakres wymachu dla większej postaci
             const limbRange = 10.0;
-            
             this.anim.rightLegOffset = Math.sin(this.anim.walkCycle) * limbRange;
             this.anim.leftLegOffset = Math.sin(this.anim.walkCycle + Math.PI) * limbRange;
-            
             this.anim.rightArmOffset = Math.sin(this.anim.walkCycle + Math.PI) * limbRange;
             this.anim.leftArmOffset = Math.sin(this.anim.walkCycle) * limbRange;
-            
             this.anim.bobbing = Math.abs(Math.sin(this.anim.walkCycle * 2)) * 1.5;
         } else {
             const damp = 0.8;
