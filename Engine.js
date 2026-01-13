@@ -338,18 +338,38 @@ class GameEngine {
         }
     }
 
-    drawObjectTop(ctx, obj, x, y) {
-        if (obj.type !== 'tree' || !obj.renderData) return;
+    generateTreeSprite(obj) {
         const rd = obj.renderData;
         const cd = rd.crownData;
-
-        // Jeśli drzewo jest daleko od centrum ekranu, możemy uprościć rysowanie (LOD), ale na razie rysujemy wszystko
         
-        ctx.save();
-        ctx.translate(x, y);
+        // Obliczamy rozmiar canvasa
+        let radius = 0;
+        if (rd.type === 'pine') {
+             // Dla sosny bierzemy największy promień (dolna warstwa)
+             radius = cd.layers[0] ? cd.layers[0].radius + 20 : 100;
+        } else {
+             // Dla liściastych szukamy najdalszego punktu bloba
+             let maxDist = 0;
+             if (cd.blobs) {
+                for(let b of cd.blobs) {
+                    const dist = Math.hypot(b.x, b.y) + b.r;
+                    if(dist > maxDist) maxDist = dist;
+                }
+             }
+             radius = Math.max(cd.radius || 0, maxDist) + 20;
+        }
+
+        const size = Math.ceil(radius * 2);
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const cx = size / 2;
+        const cy = size / 2;
+
+        ctx.translate(cx, cy);
 
         if (rd.type === 'pine') {
-            // IGLASTE - Warstwy trójkątów
             ctx.shadowColor = 'rgba(0,0,0,0.5)';
             ctx.shadowBlur = 10;
             
@@ -359,29 +379,23 @@ class GameEngine {
                 const step = (Math.PI * 2) / layer.points;
                 for (let i = 0; i < layer.points; i++) {
                     const ang = i * step + layer.angleOffset;
-                    // Promieniste wierzchołki
-                    // Zewnętrzny punkt
                     const rx = Math.cos(ang) * layer.radius;
                     const ry = Math.sin(ang) * layer.radius;
                     ctx.lineTo(rx, ry);
                     
-                    // Wewnętrzny punkt (wcięcie)
                     const angIn = ang + step * 0.5;
-                    const rxIn = Math.cos(angIn) * (layer.radius * 0.4); // Wcięcie gwiazdy
+                    const rxIn = Math.cos(angIn) * (layer.radius * 0.4);
                     const ryIn = Math.sin(angIn) * (layer.radius * 0.4);
                     ctx.lineTo(rxIn, ryIn);
                 }
                 ctx.closePath();
                 ctx.fill();
-                // "Cieniowanie" warstw
                 ctx.strokeStyle = 'rgba(0,0,0,0.2)';
                 ctx.stroke();
             }
 
         } else {
-            // LIŚCIASTE - Bloby i gałęzie
-            
-            // 1. Gałęzie (pod liśćmi)
+            // Uwzględniamy rotację drzewa w cache'u
             ctx.rotate(obj.rotation);
             ctx.strokeStyle = rd.trunkColor;
             for(let b of cd.branches) {
@@ -392,17 +406,13 @@ class GameEngine {
                 ctx.stroke();
             }
 
-            // 2. Chmura liści (półprzezroczysta)
             ctx.globalAlpha = 0.85;
-            
-            // Rysujemy bloby
             for(let blob of cd.blobs) {
                 ctx.fillStyle = blob.color;
                 ctx.beginPath();
                 ctx.arc(blob.x, blob.y, blob.r, 0, Math.PI*2);
                 ctx.fill();
                 
-                // Detal (lekkie cieniowanie bloba)
                 ctx.fillStyle = 'rgba(0,0,0,0.05)';
                 ctx.beginPath();
                 ctx.arc(blob.x - blob.r*0.2, blob.y - blob.r*0.2, blob.r*0.6, 0, Math.PI*2);
@@ -410,7 +420,18 @@ class GameEngine {
             }
         }
 
-        ctx.restore();
+        return { img: canvas, offset: -size/2 };
+    }
+
+    drawObjectTop(ctx, obj, x, y) {
+        if (obj.type !== 'tree' || !obj.renderData) return;
+
+        if (!obj.cachedSprite) {
+            obj.cachedSprite = this.generateTreeSprite(obj);
+        }
+
+        const sprite = obj.cachedSprite;
+        ctx.drawImage(sprite.img, x + sprite.offset, y + sprite.offset);
     }
 
     drawTargetMarker(ctx) {
