@@ -17,7 +17,7 @@ export class InputController {
         this.config = {
             TAP_MAX_DURATION: 250,
             DOUBLE_TAP_TIME: 350,
-            JOYSTICK_MIN_DIST: 20,
+            JOYSTICK_MIN_DIST: 15, // Threshold 15px
             JOYSTICK_MIN_TIME: 100,
             LONG_PRESS_TIME: 600,
             LONG_PRESS_MAX_MOVE: 10
@@ -110,6 +110,10 @@ export class InputController {
         });
 
         this.touch.manager.on('move', (evt, data) => {
+            // Strict single touch check: evt.target.touches length must be 1 (if available)
+            // But NippleJS event doesn't give 'touches' list directly in 'evt'.
+            // We rely on our global 'isMultitouch' flag and checks.
+
             if (this.state.isMultitouch || this.state.isLongPressTriggered) {
                 this.forceHideJoystick();
                 return;
@@ -123,7 +127,9 @@ export class InputController {
             // Check Joystick Thresholds
             if (!this.state.isJoystickActive) {
                 const duration = Date.now() - this.touch.startTime;
-                if (data.distance > this.config.JOYSTICK_MIN_DIST && duration > this.config.JOYSTICK_MIN_TIME) {
+                // STRICT condition: Only activate if one finger, distance > 15px
+                // Note: isMultitouch is updated by native touchstart listeners.
+                if (data.distance > this.config.JOYSTICK_MIN_DIST && duration > this.config.JOYSTICK_MIN_TIME && !this.state.isMultitouch) {
                     this.state.isJoystickActive = true;
                     clearTimeout(this.touch.longPressTimeout); // User intends to move
 
