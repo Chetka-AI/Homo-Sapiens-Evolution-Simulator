@@ -3,7 +3,7 @@
  *
  * InputController:
  * - Integrates NippleJS for joystick.
- * - Handles Native Touch (Tap, Long Press, Pinch).
+ * - Handles Native Touch (Tap, Long Press, Pinch, Rotate).
  * - Handles Keyboard (WASD/Arrows).
  *
  * PhysicsController:
@@ -33,6 +33,7 @@ export class InputController {
             tap: null, // { x, y, type: 'walk'|'run' }
             longPress: null, // { x, y }
             zoomDelta: 0, // change in zoom
+            rotationDelta: 0, // change in rotation (radians)
 
             // Internal flags
             isJoystickActive: false,
@@ -47,7 +48,9 @@ export class InputController {
             tapTimeout: null,
             longPressTimeout: null,
             manager: null,
-            activeElement: null
+            activeElement: null,
+            startPinchDist: 0,
+            lastAngle: 0
         };
 
         this.keys = {
@@ -94,7 +97,7 @@ export class InputController {
         });
 
         this.touch.manager.on('start', (evt, data) => {
-            if (this.state.isLongPressTriggered) return;
+            if (this.state.isLongPressTriggered || this.state.isMultitouch) return;
 
             this.touch.activeElement = data.el;
             if (this.touch.activeElement) {
@@ -132,7 +135,6 @@ export class InputController {
 
             if (this.state.isJoystickActive && data.vector) {
                 // NippleJS Vector: y is UP (+1).
-                // Physics expects UP to be (+1) so it can negate it to (-1).
                 this.state.x = data.vector.x;
                 this.state.y = data.vector.y;
                 this.state.active = true;
@@ -179,6 +181,7 @@ export class InputController {
         this.state.tap = null;
         this.state.longPress = null;
         this.state.zoomDelta = 0;
+        this.state.rotationDelta = 0;
 
         let clientX, clientY;
         if (e.touches) {
@@ -186,7 +189,7 @@ export class InputController {
                 this.state.isMultitouch = true;
                 this.forceHideJoystick();
                 clearTimeout(this.touch.longPressTimeout);
-                this.initPinch(e);
+                this.initMultitouch(e);
                 return;
             }
             clientX = e.touches[0].clientX;
@@ -215,7 +218,7 @@ export class InputController {
                 this.forceHideJoystick();
                 clearTimeout(this.touch.longPressTimeout);
                 e.preventDefault();
-                this.handlePinch(e);
+                this.handleMultitouch(e);
                 return;
             }
             clientX = e.touches[0].clientX;
@@ -280,26 +283,38 @@ export class InputController {
         }
     }
 
-    initPinch(e) {
+    initMultitouch(e) {
         const t1 = e.touches[0], t2 = e.touches[1];
         if(!t1 || !t2) return;
+
+        // Distance for Pinch
         this.touch.startPinchDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+
+        // Angle for Rotation
+        this.touch.lastAngle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX);
     }
 
-    handlePinch(e) {
+    handleMultitouch(e) {
         const t1 = e.touches[0], t2 = e.touches[1];
         if(!t1 || !t2) return;
-        const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
 
-        // Calculate delta ratio
+        // 1. Zoom (Pinch)
+        const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
         if (this.touch.startPinchDist > 0) {
             const scale = dist / this.touch.startPinchDist;
-            // 1.0 means no change. >1 zoom in, <1 zoom out.
-            // We want delta for linear zoom.
-            // Let's just expose the scale or diff.
-            // Simplified:
-            this.state.zoomDelta = (scale - 1.0) * 0.1; // sensitivity
+            this.state.zoomDelta = (scale - 1.0) * 0.1;
         }
+
+        // 2. Rotation
+        const currentAngle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX);
+        let rotationDelta = currentAngle - this.touch.lastAngle;
+
+        // Normalize wrap-around (-PI to PI)
+        if (rotationDelta > Math.PI) rotationDelta -= 2 * Math.PI;
+        else if (rotationDelta < -Math.PI) rotationDelta += 2 * Math.PI;
+
+        this.state.rotationDelta = rotationDelta;
+        this.touch.lastAngle = currentAngle;
     }
 
     update() {
@@ -323,15 +338,13 @@ export class InputController {
             }
         }
 
-        // Return copy of state to avoid external mutations, or just ref
-        // We clear transient events after one frame/read?
-        // Ideally the game loop reads it once.
         const currentState = { ...this.state };
 
         // Reset transient events
         this.state.tap = null;
         this.state.longPress = null;
         this.state.zoomDelta = 0;
+        this.state.rotationDelta = 0;
 
         return currentState;
     }

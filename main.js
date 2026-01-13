@@ -50,14 +50,26 @@ class Game {
     screenToWorld(sx, sy) {
         const cx = this.canvas.width / 2;
         const cy = this.canvas.height / 2;
-        // Invert transforms: Translate(cx, cy) -> Scale -> Translate(-cam)
-        // World = (Screen - Center) / Zoom + Cam
-        // Note: Rotation is 0 for now.
-        const dx = (sx - cx) / this.camera.zoom;
-        const dy = (sy - cy) / this.camera.zoom;
+
+        let dx = (sx - cx) / this.camera.zoom;
+        let dy = (sy - cy) / this.camera.zoom;
+
+        // Rotate vector relative to camera rotation
+        // If camera is rotated R, world vector V appears as V' = Rotate(-R) * V.
+        // We have screen vector V'. We want World vector V.
+        // V = Rotate(+R) * V'.
+
+        const r = this.camera.rotation;
+        const cos = Math.cos(r);
+        const sin = Math.sin(r);
+
+        // Rotate
+        const rdx = dx * cos - dy * sin;
+        const rdy = dx * sin + dy * cos;
+
         return {
-            x: dx + this.camera.x,
-            y: dy + this.camera.y
+            x: rdx + this.camera.x,
+            y: rdy + this.camera.y
         };
     }
 
@@ -68,6 +80,12 @@ class Game {
         if (inputState.zoomDelta !== 0) {
             this.camera.zoom = Math.max(0.1, Math.min(5.0, this.camera.zoom + inputState.zoomDelta));
             this.lastEvent = `Zoom: ${this.camera.zoom.toFixed(2)}`;
+        }
+
+        // Handle Rotation
+        if (inputState.rotationDelta !== 0) {
+            this.camera.rotation += inputState.rotationDelta;
+            this.lastEvent = `Rot: ${this.camera.rotation.toFixed(2)}`;
         }
 
         // Handle Tap -> Set Target
@@ -99,11 +117,42 @@ class Game {
             const dist = Math.hypot(dx, dy);
 
             if (dist > 5) { // Threshold
+                // Calculate direction in World Space
+                let wx = dx / dist;
+                let wy = dy / dist;
+
+                // Physics expects "Input Vector" relative to Camera View.
+                // If Camera is rotated R, a world vector W needs to be rotated by -R to become Input I.
+                // I = Rotate(-R) * W.
+
+                const r = -this.camera.rotation;
+                const cos = Math.cos(r);
+                const sin = Math.sin(r);
+
+                const ix = wx * cos - wy * sin;
+                const iy = wx * sin + wy * cos;
+
                 // Physics expects Input Y where Up=+1.
-                // World dy: Up is Negative.
-                // So Input Y = -dy.
-                physInput.x = dx / dist;
-                physInput.y = -(dy / dist);
+                // Canvas Y is Down. World dy is Down=+1.
+                // If we want to move "Up" (World -Y), wy is negative.
+                // Rotated iy will handle direction relative to camera.
+                // But Physics negates Input Y: moveY = -input.y.
+                // So we need to feed it `input.y` such that `-input.y` = intended movement Y (relative to camera).
+                // Let's verify standard Joystick: Joystick Up -> Input Y=+1 -> Move Y=-1 (Screen Up/Camera Forward).
+
+                // If we want to move Camera Forward:
+                // ix=0, iy=-1 (Screen Up).
+                // Physics: moveY = -(-1) = +1 ? No.
+                // Physics: moveY = -input.y. If input.y=1 (Joy Up), moveY=-1 (Screen Up). Correct.
+
+                // So if our target vector (relative to camera) is (ix, iy),
+                // and iy is pointing "Up" (negative value),
+                // we need input.y to be Positive.
+                // So `physInput.y = -iy`.
+
+                physInput.x = ix;
+                physInput.y = -iy;
+
                 physInput.active = true;
                 if (inputState.tap && inputState.tap.type === 'run') physInput.sprint = true;
             } else {
@@ -130,8 +179,15 @@ class Game {
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
         this.ctx.save();
+
+        // Transform Camera
+        // 1. Center Screen
         this.ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
+        // 2. Rotate Camera
+        this.ctx.rotate(-this.camera.rotation);
+        // 3. Zoom
         this.ctx.scale(this.camera.zoom, this.camera.zoom);
+        // 4. Translate to Camera Position
         this.ctx.translate(-this.camera.x, -this.camera.y);
 
         // World Bounds
@@ -186,7 +242,7 @@ class Game {
         this.ctx.font = '12px monospace';
         this.ctx.fillText(`Pos: ${this.player.x.toFixed(1)}, ${this.player.y.toFixed(1)}`, 10, 20);
         this.ctx.fillText(`Event: ${this.lastEvent}`, 10, 40);
-        this.ctx.fillText(`Controls: WASD/Arrow/Touch Joystick. Shift/DoubleTap: Sprint.`, 10, 60);
+        this.ctx.fillText(`Controls: WASD/Arrow/Touch Joystick. Shift/DoubleTap: Sprint. Pinch/Rotate.`, 10, 60);
     }
 
     loop() {
