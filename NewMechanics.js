@@ -98,8 +98,8 @@ export class InputController {
         let y = 0;
 
         // Klawiatura
-        if (this.keys.w || this.keys.arrowup) y -= 1;
-        if (this.keys.s || this.keys.arrowdown) y += 1;
+        if (this.keys.w || this.keys.arrowup) y += 1;
+        if (this.keys.s || this.keys.arrowdown) y -= 1;
         if (this.keys.a || this.keys.arrowleft) x -= 1;
         if (this.keys.d || this.keys.arrowright) x += 1;
 
@@ -112,7 +112,7 @@ export class InputController {
 
             if (dist > 5) {
                 x = dx / maxDist;
-                y = dy / maxDist;
+                y = -dy / maxDist;
                 // Clamp do 1.0
                 const len = Math.hypot(x, y);
                 if (len > 1) {
