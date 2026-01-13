@@ -18,7 +18,7 @@ export class InputController {
         this.overlay = overlayElement || document.body;
 
         this.config = {
-            TAP_MAX_DURATION: 50,
+            TAP_MAX_DURATION: 200, // Increased for better detection (Human tap ~100-150ms)
             DOUBLE_TAP_TIME: 350,
             JOYSTICK_MIN_DIST: 15,
             JOYSTICK_MIN_TIME: 50,
@@ -53,6 +53,7 @@ export class InputController {
             manager: null,
             activeElement: null,
             startPinchDist: 0,
+            lastPinchDist: 0,
             lastAngle: 0
         };
 
@@ -289,7 +290,9 @@ export class InputController {
         if(!t1 || !t2) return;
 
         // Distance for Pinch
-        this.touch.startPinchDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        this.touch.startPinchDist = dist;
+        this.touch.lastPinchDist = dist;
 
         // Angle for Rotation
         this.touch.lastAngle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX);
@@ -299,12 +302,14 @@ export class InputController {
         const t1 = e.touches[0], t2 = e.touches[1];
         if(!t1 || !t2) return;
 
-        // 1. Zoom (Pinch)
+        // 1. Zoom (Pinch) - Linear
         const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-        if (this.touch.startPinchDist > 0) {
-            const scale = dist / this.touch.startPinchDist;
-            this.state.zoomDelta = (scale - 1.0) * 0.02; // Reduced sensitivity (was 0.1)
-        }
+        // Change delta to be proportional to pixel difference
+        // e.g. 100px difference = 0.5 zoom change
+        const diff = dist - this.touch.lastPinchDist;
+        this.state.zoomDelta = diff * 0.005;
+
+        this.touch.lastPinchDist = dist;
 
         // 2. Rotation
         const currentAngle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX);
@@ -370,6 +375,7 @@ export class PhysicsController {
         // Physics logic:
         // Screen Y is Down (+).
         // Move Up -> -Y.
+        // So moveY should be negative when Input is Positive.
         // Formula: moveY = -input.y
 
         const moveX = input.x * cos - (-input.y) * sin;
@@ -382,6 +388,7 @@ export class PhysicsController {
         let speed = this.config.baseSpeed;
         if (input.sprint) speed *= this.config.runMultiplier;
 
+        // Input magnitude for analog control
         const inputMagnitude = Math.hypot(input.x, input.y);
         speed *= Math.min(1.0, inputMagnitude);
 

@@ -29,7 +29,18 @@ class Game {
 
         // Navigation Target (Tap to move)
         this.path = []; // Array of points {x, y}
-        this.target = null; // Current immediate target
+        this.isPathSprinting = false;
+
+        // Joystick Toggle
+        this.isRunToggleOn = false;
+        const btnToggle = document.getElementById('btn-toggle-speed');
+        if (btnToggle) {
+            btnToggle.addEventListener('click', (e) => {
+                e.stopPropagation(); // prevent game click
+                this.isRunToggleOn = !this.isRunToggleOn;
+                btnToggle.innerText = this.isRunToggleOn ? '🏃' : '🚶';
+            });
+        }
 
         // Visual debug for events
         this.lastEvent = "";
@@ -74,9 +85,9 @@ class Game {
     update(dt) {
         const inputState = this.input.update();
 
-        // Handle Zoom
+        // Handle Zoom (Limit max zoom out to 3.0 as requested)
         if (inputState.zoomDelta !== 0) {
-            this.camera.zoom = Math.max(0.1, Math.min(5.0, this.camera.zoom + inputState.zoomDelta));
+            this.camera.zoom = Math.max(0.1, Math.min(3.0, this.camera.zoom + inputState.zoomDelta));
             this.lastEvent = `Zoom: ${this.camera.zoom.toFixed(2)}`;
         }
 
@@ -93,9 +104,11 @@ class Game {
 
             if (path) {
                 this.path = path;
-                // Add the exact final click position as the last point for precision
                 this.path.push(worldPos);
-                this.lastEvent = `Tap: Path found (${this.path.length} steps)`;
+                // Set sprint state based on Double Tap
+                this.isPathSprinting = (inputState.tap.type === 'run');
+
+                this.lastEvent = `Tap: Path (${this.path.length}) ${this.isPathSprinting ? 'Run' : 'Walk'}`;
             } else {
                 this.lastEvent = "Tap: No path!";
                 this.path = [];
@@ -109,13 +122,18 @@ class Game {
         }
 
         // Determine Physics Input (Joystick overrides Path)
-        let physInput = { x: 0, y: 0, active: false, sprint: inputState.sprint };
+        let physInput = { x: 0, y: 0, active: false, sprint: false };
 
         if (inputState.active) {
             // Joystick / Keyboard active
             physInput.x = inputState.x;
             physInput.y = inputState.y;
             physInput.active = true;
+            // Joystick toggle logic:
+            // Default Walk. If Toggle ON -> Sprint.
+            // (Unless Keyboard Shift is pressed, which InputController handles via inputState.sprint)
+            physInput.sprint = this.isRunToggleOn || inputState.sprint;
+
             this.path = []; // Cancel path on manual input
         } else if (this.path.length > 0) {
             // Move towards next point in path
@@ -140,7 +158,7 @@ class Game {
                 physInput.y = -iy;
 
                 physInput.active = true;
-                if (inputState.tap && inputState.tap.type === 'run') physInput.sprint = true;
+                physInput.sprint = this.isPathSprinting;
             } else {
                 // Reached point, go to next
                 this.path.shift();
@@ -156,9 +174,9 @@ class Game {
             (x, y) => this.checkCollision(x, y)
         );
 
-        // Camera follow
-        this.camera.x += (this.player.x - this.camera.x) * 0.1;
-        this.camera.y += (this.player.y - this.camera.y) * 0.1;
+        // Camera locked to player (Direct assignment, no Lerp)
+        this.camera.x = this.player.x;
+        this.camera.y = this.player.y;
     }
 
     draw() {
@@ -237,7 +255,7 @@ class Game {
         this.ctx.font = '12px monospace';
         this.ctx.fillText(`Pos: ${this.player.x.toFixed(1)}, ${this.player.y.toFixed(1)}`, 10, 20);
         this.ctx.fillText(`Event: ${this.lastEvent}`, 10, 40);
-        this.ctx.fillText(`Controls: WASD/Joystick (50ms). Tap (Smart Move).`, 10, 60);
+        this.ctx.fillText(`Toggle: ${this.isRunToggleOn ? 'Run' : 'Walk'}. Tap (Smart Move).`, 10, 60);
     }
 
     loop() {
