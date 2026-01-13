@@ -1,142 +1,339 @@
 /**
  * NewMechanics.js
- * Wyodrębniona mechanika sterowania i fizyki poruszania się.
  *
- * Zawiera:
- * 1. InputController - Obsługa wejścia (Klawiatura + Mysz/Dotyk).
- * 2. PhysicsController - Logika poruszania postacią.
+ * InputController:
+ * - Integrates NippleJS for joystick.
+ * - Handles Native Touch (Tap, Long Press, Pinch).
+ * - Handles Keyboard (WASD/Arrows).
+ *
+ * PhysicsController:
+ * - Handles movement physics.
  */
 
 export class InputController {
-    constructor(element) {
-        this.element = element || window;
+    constructor(overlayElement) {
+        this.overlay = overlayElement || document.body;
 
-        // Stan wejścia
+        this.config = {
+            TAP_MAX_DURATION: 250,
+            DOUBLE_TAP_TIME: 350,
+            JOYSTICK_MIN_DIST: 20,
+            JOYSTICK_MIN_TIME: 100,
+            LONG_PRESS_TIME: 600,
+            LONG_PRESS_MAX_MOVE: 10
+        };
+
         this.state = {
             x: 0,
             y: 0,
             active: false,
-            sprint: false
+            sprint: false,
+
+            // Touch Events
+            tap: null, // { x, y, type: 'walk'|'run' }
+            longPress: null, // { x, y }
+            zoomDelta: 0, // change in zoom
+
+            // Internal flags
+            isJoystickActive: false,
+            isLongPressTriggered: false,
+            isMultitouch: false
         };
 
-        // Klawisze
+        this.touch = {
+            startTime: 0,
+            startPos: { x: 0, y: 0 },
+            lastTapTime: 0,
+            tapTimeout: null,
+            longPressTimeout: null,
+            manager: null,
+            activeElement: null
+        };
+
         this.keys = {
             w: false, a: false, s: false, d: false,
             arrowup: false, arrowdown: false, arrowleft: false, arrowright: false,
             shift: false
         };
 
-        // Mysz / Dotyk (Wirtualny Joystick - logika uproszczona)
-        this.pointer = {
-            active: false,
-            startX: 0, startY: 0,
-            currentX: 0, currentY: 0
-        };
-
-        this.initListeners();
+        this.init();
     }
 
-    initListeners() {
-        // Klawiatura
-        window.addEventListener('keydown', (e) => this.handleKey(e, true));
-        window.addEventListener('keyup', (e) => this.handleKey(e, false));
+    init() {
+        this.initKeys();
+        this.initNipple();
+        this.initTouchListeners();
+    }
 
-        // Mysz / Dotyk (prosta implementacja joysticka jeśli element podano)
-        if (this.element !== window) {
-            this.element.addEventListener('mousedown', (e) => this.handlePointerStart(e.clientX, e.clientY));
-            this.element.addEventListener('mousemove', (e) => this.handlePointerMove(e.clientX, e.clientY));
-            window.addEventListener('mouseup', () => this.handlePointerEnd());
+    initKeys() {
+        window.addEventListener('keydown', (e) => {
+            const k = e.key.toLowerCase();
+            if (this.keys.hasOwnProperty(k)) this.keys[k] = true;
+            if (k === 'shift') this.state.sprint = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            const k = e.key.toLowerCase();
+            if (this.keys.hasOwnProperty(k)) this.keys[k] = false;
+            if (k === 'shift') this.state.sprint = false;
+        });
+    }
 
-            this.element.addEventListener('touchstart', (e) => {
-                if(e.touches.length > 0) this.handlePointerStart(e.touches[0].clientX, e.touches[0].clientY);
-            }, {passive: false});
-            this.element.addEventListener('touchmove', (e) => {
-                if(e.touches.length > 0) {
-                    e.preventDefault();
-                    this.handlePointerMove(e.touches[0].clientX, e.touches[0].clientY);
+    initNipple() {
+        if (typeof nipplejs === 'undefined') {
+            console.error("NippleJS not found!");
+            return;
+        }
+
+        this.touch.manager = nipplejs.create({
+            zone: this.overlay,
+            mode: 'dynamic',
+            color: 'white',
+            size: 100,
+            threshold: 0.1,
+            multitouch: false
+        });
+
+        this.touch.manager.on('start', (evt, data) => {
+            if (this.state.isLongPressTriggered) return;
+
+            this.touch.activeElement = data.el;
+            if (this.touch.activeElement) {
+                // Hide initially, show only if confirmed as joystick
+                this.touch.activeElement.style.opacity = '0';
+                this.touch.activeElement.style.transition = 'opacity 0.2s ease-out';
+            }
+
+            this.state.isJoystickActive = false;
+        });
+
+        this.touch.manager.on('move', (evt, data) => {
+            if (this.state.isMultitouch || this.state.isLongPressTriggered) {
+                this.forceHideJoystick();
+                return;
+            }
+
+            // If moved too far, cancel long press
+            if (data.distance > this.config.LONG_PRESS_MAX_MOVE) {
+                clearTimeout(this.touch.longPressTimeout);
+            }
+
+            // Check Joystick Thresholds
+            if (!this.state.isJoystickActive) {
+                const duration = Date.now() - this.touch.startTime;
+                if (data.distance > this.config.JOYSTICK_MIN_DIST && duration > this.config.JOYSTICK_MIN_TIME) {
+                    this.state.isJoystickActive = true;
+                    clearTimeout(this.touch.longPressTimeout); // User intends to move
+
+                    if (this.touch.activeElement) {
+                        this.touch.activeElement.style.opacity = '1';
+                    }
                 }
-            }, {passive: false});
-            window.addEventListener('touchend', () => this.handlePointerEnd());
+            }
+
+            if (this.state.isJoystickActive && data.vector) {
+                // NippleJS Vector: y is UP (+1).
+                // Physics expects UP to be (+1) so it can negate it to (-1).
+                this.state.x = data.vector.x;
+                this.state.y = data.vector.y;
+                this.state.active = true;
+            }
+        });
+
+        this.touch.manager.on('end', () => {
+            this.resetJoystick();
+        });
+    }
+
+    resetJoystick() {
+        this.state.active = false;
+        this.state.x = 0;
+        this.state.y = 0;
+        this.state.isJoystickActive = false;
+        this.touch.activeElement = null;
+    }
+
+    forceHideJoystick() {
+        this.state.isJoystickActive = false;
+        this.state.active = false;
+        this.state.x = 0;
+        this.state.y = 0;
+        if (this.touch.activeElement) {
+            this.touch.activeElement.style.opacity = '0';
         }
     }
 
-    handleKey(e, isDown) {
-        const key = e.key.toLowerCase();
-        if (this.keys.hasOwnProperty(key)) {
-            this.keys[key] = isDown;
+    initTouchListeners() {
+        // Native listeners for Pinch, Tap, Long Press
+        this.overlay.addEventListener('touchstart', (e) => this.handleStart(e), { passive: false });
+        this.overlay.addEventListener('touchmove', (e) => this.handleMove(e), { passive: false });
+        this.overlay.addEventListener('touchend', (e) => this.handleEnd(e), { passive: false });
+
+        // Mouse for testing
+        this.overlay.addEventListener('mousedown', (e) => this.handleStart(e));
+        this.overlay.addEventListener('mousemove', (e) => this.handleMove(e));
+        this.overlay.addEventListener('mouseup', (e) => this.handleEnd(e));
+    }
+
+    handleStart(e) {
+        // Reset events
+        this.state.tap = null;
+        this.state.longPress = null;
+        this.state.zoomDelta = 0;
+
+        let clientX, clientY;
+        if (e.touches) {
+            if (e.touches.length > 1) {
+                this.state.isMultitouch = true;
+                this.forceHideJoystick();
+                clearTimeout(this.touch.longPressTimeout);
+                this.initPinch(e);
+                return;
+            }
+            clientX = e.touches[0].clientX;
+            clientY = e.touches[0].clientY;
+        } else {
+            clientX = e.clientX;
+            clientY = e.clientY;
+        }
+
+        this.state.isMultitouch = false;
+        this.state.isLongPressTriggered = false;
+        this.touch.startTime = Date.now();
+        this.touch.startPos = { x: clientX, y: clientY };
+
+        // Start Long Press Timer
+        this.touch.longPressTimeout = setTimeout(() => {
+            this.triggerLongPress(clientX, clientY);
+        }, this.config.LONG_PRESS_TIME);
+    }
+
+    handleMove(e) {
+        let clientX, clientY;
+        if (e.touches) {
+            if (e.touches.length > 1) {
+                this.state.isMultitouch = true;
+                this.forceHideJoystick();
+                clearTimeout(this.touch.longPressTimeout);
+                e.preventDefault();
+                this.handlePinch(e);
+                return;
+            }
+            clientX = e.touches[0].clientX;
+            clientY = e.touches[0].clientY;
+        } else {
+            clientX = e.clientX;
+            clientY = e.clientY;
+        }
+
+        if (this.state.isMultitouch) {
+            e.preventDefault();
+            return;
+        }
+
+        const dx = clientX - this.touch.startPos.x;
+        const dy = clientY - this.touch.startPos.y;
+        const dist = Math.hypot(dx, dy);
+
+        // If moved too much, cancel long press
+        if (dist > this.config.LONG_PRESS_MAX_MOVE) {
+            clearTimeout(this.touch.longPressTimeout);
         }
     }
 
-    handlePointerStart(x, y) {
-        this.pointer.active = true;
-        this.pointer.startX = x;
-        this.pointer.startY = y;
-        this.pointer.currentX = x;
-        this.pointer.currentY = y;
+    handleEnd(e) {
+        clearTimeout(this.touch.longPressTimeout);
+
+        if (e.touches && e.touches.length === 0) {
+            this.state.isMultitouch = false;
+        }
+
+        const duration = Date.now() - this.touch.startTime;
+
+        // Process Tap only if NO joystick, NO multitouch, NO long press
+        if (!this.state.isMultitouch && !this.state.isJoystickActive && !this.state.isLongPressTriggered) {
+            if (duration < this.config.TAP_MAX_DURATION) {
+                this.processTap(this.touch.startPos.x, this.touch.startPos.y);
+            }
+        }
     }
 
-    handlePointerMove(x, y) {
-        if (!this.pointer.active) return;
-        this.pointer.currentX = x;
-        this.pointer.currentY = y;
+    triggerLongPress(x, y) {
+        this.state.isLongPressTriggered = true;
+        this.forceHideJoystick();
+        // Emit Long Press
+        this.state.longPress = { x, y };
+        // Vibrate
+        if (navigator.vibrate) navigator.vibrate(50);
     }
 
-    handlePointerEnd() {
-        this.pointer.active = false;
-        this.pointer.startX = 0;
-        this.pointer.startY = 0;
-        this.pointer.currentX = 0;
-        this.pointer.currentY = 0;
+    processTap(x, y) {
+        const now = Date.now();
+        if (now - this.touch.lastTapTime < this.config.DOUBLE_TAP_TIME) {
+            clearTimeout(this.touch.tapTimeout);
+            this.state.tap = { x, y, type: 'run' }; // Double tap
+            this.touch.lastTapTime = 0;
+        } else {
+            this.touch.tapTimeout = setTimeout(() => {
+                this.state.tap = { x, y, type: 'walk' }; // Single tap
+            }, 250);
+            this.touch.lastTapTime = now;
+        }
     }
 
-    /**
-     * Oblicza i zwraca znormalizowany wektor wejścia.
-     */
+    initPinch(e) {
+        const t1 = e.touches[0], t2 = e.touches[1];
+        if(!t1 || !t2) return;
+        this.touch.startPinchDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+    }
+
+    handlePinch(e) {
+        const t1 = e.touches[0], t2 = e.touches[1];
+        if(!t1 || !t2) return;
+        const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+
+        // Calculate delta ratio
+        if (this.touch.startPinchDist > 0) {
+            const scale = dist / this.touch.startPinchDist;
+            // 1.0 means no change. >1 zoom in, <1 zoom out.
+            // We want delta for linear zoom.
+            // Let's just expose the scale or diff.
+            // Simplified:
+            this.state.zoomDelta = (scale - 1.0) * 0.1; // sensitivity
+        }
+    }
+
     update() {
-        // Reset
-        let x = 0;
-        let y = 0;
+        // Integrate Keyboard if Joystick is inactive
+        if (!this.state.active) {
+            let kx = 0, ky = 0;
+            if (this.keys.w || this.keys.arrowup) ky += 1;
+            if (this.keys.s || this.keys.arrowdown) ky -= 1;
+            if (this.keys.a || this.keys.arrowleft) kx -= 1;
+            if (this.keys.d || this.keys.arrowright) kx += 1;
 
-        // Klawiatura
-        if (this.keys.w || this.keys.arrowup) y += 1;
-        if (this.keys.s || this.keys.arrowdown) y -= 1;
-        if (this.keys.a || this.keys.arrowleft) x -= 1;
-        if (this.keys.d || this.keys.arrowright) x += 1;
-
-        // Pointer (Joystick Logic)
-        if (this.pointer.active) {
-            const dx = this.pointer.currentX - this.pointer.startX;
-            const dy = this.pointer.currentY - this.pointer.startY;
-            const dist = Math.hypot(dx, dy);
-            const maxDist = 50; // Max wychylenie joysticka
-
-            if (dist > 5) {
-                x = dx / maxDist;
-                y = -dy / maxDist;
-                // Clamp do 1.0
-                const len = Math.hypot(x, y);
-                if (len > 1) {
-                    x /= len;
-                    y /= len;
-                }
+            if (kx !== 0 || ky !== 0) {
+                const len = Math.hypot(kx, ky);
+                this.state.x = kx / len;
+                this.state.y = ky / len;
+                this.state.active = true;
+            } else {
+                this.state.active = false;
+                this.state.x = 0;
+                this.state.y = 0;
             }
         }
 
-        // Normalizacja (dla klawiatury)
-        if (!this.pointer.active) {
-            const len = Math.hypot(x, y);
-            if (len > 0) {
-                x /= len;
-                y /= len;
-            }
-        }
+        // Return copy of state to avoid external mutations, or just ref
+        // We clear transient events after one frame/read?
+        // Ideally the game loop reads it once.
+        const currentState = { ...this.state };
 
-        this.state.x = x;
-        this.state.y = y;
-        this.state.active = (Math.abs(x) > 0.01 || Math.abs(y) > 0.01);
-        this.state.sprint = this.keys.shift; // Prosty sprint shiftem
+        // Reset transient events
+        this.state.tap = null;
+        this.state.longPress = null;
+        this.state.zoomDelta = 0;
 
-        return this.state;
+        return currentState;
     }
 }
 
@@ -149,50 +346,35 @@ export class PhysicsController {
         };
     }
 
-    /**
-     * Aktualizuje pozycję obiektu na podstawie wejścia.
-     * @param {Object} entity - Obiekt z {x, y, rotation}
-     * @param {Object} input - Obiekt z {x, y, active}
-     * @param {number} cameraRotation - Aktualny obrót kamery (radiany)
-     * @param {number} dt - Delta time (ms)
-     * @param {Function} checkCollision - (x, y) => boolean
-     */
     update(entity, input, cameraRotation, dt, checkCollision) {
-        if (!input.active) return;
+        if (!input.active) return false;
 
-        // 1. Przeliczenie wejścia względem kamery
         const cos = Math.cos(cameraRotation);
         const sin = Math.sin(cameraRotation);
 
-        // input.x/y to wektor lokalny (ekranowy). Musimy go obrócić o kamerę.
-        // W oryginale: mx = input.x * cos - (-input.y) * sin;
-        // Uwaga: W oryginale Y joysticka jest często odwrócony (góra to ujemne Y).
-        // Tutaj zakładamy standard: Y-down (ekran).
+        // Input X/Y is normalized. Up is +1.
+        // Physics logic:
+        // Screen Y is Down (+).
+        // Move Up -> -Y.
+        // So moveY should be negative when Input is Positive.
+        // Formula: moveY = -input.y
 
         const moveX = input.x * cos - (-input.y) * sin;
         const moveY = input.x * sin + (-input.y) * cos;
 
-        // 2. Obliczenie rotacji postaci
         if (Math.hypot(moveX, moveY) > 0.01) {
             entity.rotation = Math.atan2(moveY, moveX);
         }
 
-        // 3. Obliczenie prędkości
         let speed = this.config.baseSpeed;
         if (input.sprint) speed *= this.config.runMultiplier;
 
-        // Skalowanie prędkości przez wejście analogowe (joystick)
+        // Input magnitude for analog control
         const inputMagnitude = Math.hypot(input.x, input.y);
         speed *= Math.min(1.0, inputMagnitude);
 
-        // Delta distance
-        // Zakładamy dt w ms. 16ms ~= 1 frame.
-        // W oryginale 1.4 to pixele na tick? Sprawdźmy Character.js:
-        // STRIDE_LENGTH = 1.4 * 100 (140px).
-        // W update: dist = speed * dt/16 (przybliżenie).
-        const dist = speed * (dt / 16.0) * 5; // *5 to arbitralny mnożnik, żeby dopasować do skali
+        const dist = speed * (dt / 16.0) * 5;
 
-        // 4. Kolizje i Aplikacja ruchu
         const nextX = entity.x + moveX * dist;
         const nextY = entity.y + moveY * dist;
 
@@ -203,7 +385,6 @@ export class PhysicsController {
             entity.y = nextY;
             moved = true;
         } else {
-            // Sliding (ślizganie po ścianach)
             if (!checkCollision(nextX, entity.y)) {
                 entity.x = nextX;
                 moved = true;

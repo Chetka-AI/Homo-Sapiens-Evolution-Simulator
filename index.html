@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>EvoSim - Nowa Mechanika</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
     <style>
         body, html {
             margin: 0;
@@ -15,17 +16,39 @@
             font-family: monospace;
             color: white;
             user-select: none;
-            touch-action: none; /* Ważne dla obsługi dotyku na canvasie */
+            touch-action: none;
+            -webkit-tap-highlight-color: transparent;
         }
         canvas {
             display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        #touch-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+        }
+        /* NippleJS overrides */
+        .nipple .front {
+            background: rgba(255, 255, 255, 0.5) !important;
+            border: 2px solid rgba(255, 255, 255, 0.8) !important;
+        }
+        .nipple .back {
+            background: rgba(255, 255, 255, 0.1) !important;
+            border: 2px solid rgba(255, 255, 255, 0.3) !important;
         }
     </style>
 </head>
 <body>
+    <div id="touch-overlay"></div>
     <canvas id="gameCanvas"></canvas>
     
-    <!-- Główny skrypt gry -->
     <script type="module" src="main.js"></script>
 </body>
 </html>
