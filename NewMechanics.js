@@ -8,6 +8,9 @@
  *
  * PhysicsController:
  * - Handles movement physics.
+ *
+ * Pathfinder:
+ * - A* algorithm for obstacle avoidance.
  */
 
 export class InputController {
@@ -15,10 +18,10 @@ export class InputController {
         this.overlay = overlayElement || document.body;
 
         this.config = {
-            TAP_MAX_DURATION: 250,
+            TAP_MAX_DURATION: 50,
             DOUBLE_TAP_TIME: 350,
-            JOYSTICK_MIN_DIST: 15, // Threshold 15px
-            JOYSTICK_MIN_TIME: 200, // Delay 200ms
+            JOYSTICK_MIN_DIST: 15,
+            JOYSTICK_MIN_TIME: 50,
             LONG_PRESS_TIME: 600,
             LONG_PRESS_MAX_MOVE: 10
         };
@@ -119,7 +122,7 @@ export class InputController {
 
                 // STRICT condition:
                 // 1. Distance > 15px
-                // 2. Duration > 200ms
+                // 2. Duration > 50ms
                 // 3. No multitouch
                 if (data.distance > this.config.JOYSTICK_MIN_DIST && duration > this.config.JOYSTICK_MIN_TIME && !this.state.isMultitouch) {
                     this.state.isJoystickActive = true;
@@ -300,7 +303,7 @@ export class InputController {
         const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
         if (this.touch.startPinchDist > 0) {
             const scale = dist / this.touch.startPinchDist;
-            this.state.zoomDelta = (scale - 1.0) * 0.1;
+            this.state.zoomDelta = (scale - 1.0) * 0.02; // Reduced sensitivity (was 0.1)
         }
 
         // 2. Rotation
@@ -367,7 +370,6 @@ export class PhysicsController {
         // Physics logic:
         // Screen Y is Down (+).
         // Move Up -> -Y.
-        // So moveY should be negative when Input is Positive.
         // Formula: moveY = -input.y
 
         const moveX = input.x * cos - (-input.y) * sin;
@@ -380,7 +382,6 @@ export class PhysicsController {
         let speed = this.config.baseSpeed;
         if (input.sprint) speed *= this.config.runMultiplier;
 
-        // Input magnitude for analog control
         const inputMagnitude = Math.hypot(input.x, input.y);
         speed *= Math.min(1.0, inputMagnitude);
 
@@ -406,5 +407,112 @@ export class PhysicsController {
         }
 
         return moved;
+    }
+}
+
+export class Pathfinder {
+    constructor(collisionCheck, gridSize = 40) {
+        this.checkCollision = collisionCheck;
+        this.gridSize = gridSize;
+    }
+
+    findPath(start, end) {
+        // Convert world to grid
+        const startNode = this.worldToGrid(start.x, start.y);
+        const endNode = this.worldToGrid(end.x, end.y);
+
+        const openSet = [];
+        const closedSet = new Set();
+        const cameFrom = new Map();
+
+        const gScore = new Map();
+        const fScore = new Map();
+
+        const key = (n) => `${n.x},${n.y}`;
+
+        openSet.push(startNode);
+        gScore.set(key(startNode), 0);
+        fScore.set(key(startNode), this.heuristic(startNode, endNode));
+
+        let iterations = 0;
+        const maxIterations = 2000; // Safety break
+
+        while (openSet.length > 0) {
+            if (iterations++ > maxIterations) break;
+
+            // Get node with lowest fScore
+            openSet.sort((a, b) => (fScore.get(key(a)) || Infinity) - (fScore.get(key(b)) || Infinity));
+            const current = openSet.shift();
+
+            if (current.x === endNode.x && current.y === endNode.y) {
+                return this.reconstructPath(cameFrom, current);
+            }
+
+            closedSet.add(key(current));
+
+            const neighbors = this.getNeighbors(current);
+            for (let neighbor of neighbors) {
+                const neighborKey = key(neighbor);
+                if (closedSet.has(neighborKey)) continue;
+
+                // Check collision at world coordinates
+                const worldPos = this.gridToWorld(neighbor.x, neighbor.y);
+                if (this.checkCollision(worldPos.x, worldPos.y)) continue;
+
+                const dist = (neighbor.x !== current.x && neighbor.y !== current.y) ? 1.414 : 1;
+                const tentativeG = (gScore.get(key(current)) || Infinity) + dist;
+
+                if (tentativeG < (gScore.get(neighborKey) || Infinity)) {
+                    cameFrom.set(neighborKey, current);
+                    gScore.set(neighborKey, tentativeG);
+                    fScore.set(neighborKey, tentativeG + this.heuristic(neighbor, endNode));
+
+                    if (!openSet.some(n => n.x === neighbor.x && n.y === neighbor.y)) {
+                        openSet.push(neighbor);
+                    }
+                }
+            }
+        }
+
+        // Fallback: direct line if no path found (or return null)
+        console.log("Path not found");
+        return null;
+    }
+
+    getNeighbors(node) {
+        const dirs = [
+            {x:0, y:-1}, {x:0, y:1}, {x:-1, y:0}, {x:1, y:0},
+            {x:-1, y:-1}, {x:1, y:-1}, {x:-1, y:1}, {x:1, y:1}
+        ];
+        return dirs.map(d => ({x: node.x + d.x, y: node.y + d.y}));
+    }
+
+    heuristic(a, b) {
+        return Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
+    }
+
+    worldToGrid(x, y) {
+        return {
+            x: Math.round(x / this.gridSize),
+            y: Math.round(y / this.gridSize)
+        };
+    }
+
+    gridToWorld(gx, gy) {
+        return {
+            x: gx * this.gridSize,
+            y: gy * this.gridSize
+        };
+    }
+
+    reconstructPath(cameFrom, current) {
+        const totalPath = [this.gridToWorld(current.x, current.y)];
+        const key = (n) => `${n.x},${n.y}`;
+
+        while (cameFrom.has(key(current))) {
+            current = cameFrom.get(key(current));
+            totalPath.unshift(this.gridToWorld(current.x, current.y));
+        }
+        return totalPath;
     }
 }

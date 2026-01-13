@@ -1,4 +1,4 @@
-import { InputController, PhysicsController } from './NewMechanics.js';
+import { InputController, PhysicsController, Pathfinder } from './NewMechanics.js';
 
 class Game {
     constructor() {
@@ -11,6 +11,9 @@ class Game {
 
         this.input = new InputController(this.overlay);
         this.physics = new PhysicsController();
+
+        // Initialize Pathfinder with bound collision check
+        this.pathfinder = new Pathfinder((x, y) => this.checkCollision(x, y));
 
         this.player = {
             x: 0,
@@ -25,7 +28,8 @@ class Game {
         this.worldBounds = { minX: -500, maxX: 500, minY: -500, maxY: 500 };
 
         // Navigation Target (Tap to move)
-        this.target = null; // {x, y}
+        this.path = []; // Array of points {x, y}
+        this.target = null; // Current immediate target
 
         // Visual debug for events
         this.lastEvent = "";
@@ -54,16 +58,10 @@ class Game {
         let dx = (sx - cx) / this.camera.zoom;
         let dy = (sy - cy) / this.camera.zoom;
 
-        // Rotate vector relative to camera rotation
-        // If camera is rotated R, world vector V appears as V' = Rotate(-R) * V.
-        // We have screen vector V'. We want World vector V.
-        // V = Rotate(+R) * V'.
-
         const r = this.camera.rotation;
         const cos = Math.cos(r);
         const sin = Math.sin(r);
 
-        // Rotate
         const rdx = dx * cos - dy * sin;
         const rdy = dx * sin + dy * cos;
 
@@ -88,20 +86,29 @@ class Game {
             this.lastEvent = `Rot: ${this.camera.rotation.toFixed(2)}`;
         }
 
-        // Handle Tap -> Set Target
+        // Handle Tap -> Calculate Path
         if (inputState.tap) {
             const worldPos = this.screenToWorld(inputState.tap.x, inputState.tap.y);
-            this.target = worldPos;
-            this.lastEvent = `Tap: ${Math.floor(worldPos.x)}, ${Math.floor(worldPos.y)}`;
+            const path = this.pathfinder.findPath(this.player, worldPos);
+
+            if (path) {
+                this.path = path;
+                // Add the exact final click position as the last point for precision
+                this.path.push(worldPos);
+                this.lastEvent = `Tap: Path found (${this.path.length} steps)`;
+            } else {
+                this.lastEvent = "Tap: No path!";
+                this.path = [];
+            }
         }
 
         // Handle Long Press
         if (inputState.longPress) {
             this.lastEvent = "Long Press Detected!";
-            this.target = null; // Stop moving
+            this.path = []; // Stop moving
         }
 
-        // Determine Physics Input (Joystick overrides Target)
+        // Determine Physics Input (Joystick overrides Path)
         let physInput = { x: 0, y: 0, active: false, sprint: inputState.sprint };
 
         if (inputState.active) {
@@ -109,22 +116,19 @@ class Game {
             physInput.x = inputState.x;
             physInput.y = inputState.y;
             physInput.active = true;
-            this.target = null; // Cancel target on manual input
-        } else if (this.target) {
-            // Move towards target
-            const dx = this.target.x - this.player.x;
-            const dy = this.target.y - this.player.y;
+            this.path = []; // Cancel path on manual input
+        } else if (this.path.length > 0) {
+            // Move towards next point in path
+            const target = this.path[0];
+            const dx = target.x - this.player.x;
+            const dy = target.y - this.player.y;
             const dist = Math.hypot(dx, dy);
 
-            if (dist > 5) { // Threshold
-                // Calculate direction in World Space
+            if (dist > 15) { // Reach radius
                 let wx = dx / dist;
                 let wy = dy / dist;
 
-                // Physics expects "Input Vector" relative to Camera View.
-                // If Camera is rotated R, a world vector W needs to be rotated by -R to become Input I.
-                // I = Rotate(-R) * W.
-
+                // Rotate input relative to camera
                 const r = -this.camera.rotation;
                 const cos = Math.cos(r);
                 const sin = Math.sin(r);
@@ -132,31 +136,14 @@ class Game {
                 const ix = wx * cos - wy * sin;
                 const iy = wx * sin + wy * cos;
 
-                // Physics expects Input Y where Up=+1.
-                // Canvas Y is Down. World dy is Down=+1.
-                // If we want to move "Up" (World -Y), wy is negative.
-                // Rotated iy will handle direction relative to camera.
-                // But Physics negates Input Y: moveY = -input.y.
-                // So we need to feed it `input.y` such that `-input.y` = intended movement Y (relative to camera).
-                // Let's verify standard Joystick: Joystick Up -> Input Y=+1 -> Move Y=-1 (Screen Up/Camera Forward).
-
-                // If we want to move Camera Forward:
-                // ix=0, iy=-1 (Screen Up).
-                // Physics: moveY = -(-1) = +1 ? No.
-                // Physics: moveY = -input.y. If input.y=1 (Joy Up), moveY=-1 (Screen Up). Correct.
-
-                // So if our target vector (relative to camera) is (ix, iy),
-                // and iy is pointing "Up" (negative value),
-                // we need input.y to be Positive.
-                // So `physInput.y = -iy`.
-
                 physInput.x = ix;
                 physInput.y = -iy;
 
                 physInput.active = true;
                 if (inputState.tap && inputState.tap.type === 'run') physInput.sprint = true;
             } else {
-                this.target = null; // Arrived
+                // Reached point, go to next
+                this.path.shift();
             }
         }
 
@@ -180,14 +167,10 @@ class Game {
 
         this.ctx.save();
 
-        // Transform Camera
-        // 1. Center Screen
+        // Camera Transform
         this.ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
-        // 2. Rotate Camera
         this.ctx.rotate(-this.camera.rotation);
-        // 3. Zoom
         this.ctx.scale(this.camera.zoom, this.camera.zoom);
-        // 4. Translate to Camera Position
         this.ctx.translate(-this.camera.x, -this.camera.y);
 
         // World Bounds
@@ -211,12 +194,24 @@ class Game {
         }
         this.ctx.stroke();
 
-        // Target Marker
-        if (this.target) {
-            this.ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
+        // Path Debug
+        if (this.path.length > 0) {
+            this.ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)';
+            this.ctx.lineWidth = 3;
             this.ctx.beginPath();
-            this.ctx.arc(this.target.x, this.target.y, 10, 0, Math.PI*2);
-            this.ctx.fill();
+            this.ctx.moveTo(this.player.x, this.player.y);
+            for(let p of this.path) {
+                this.ctx.lineTo(p.x, p.y);
+            }
+            this.ctx.stroke();
+
+            // Draw points
+            this.ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
+            for(let p of this.path) {
+                this.ctx.beginPath();
+                this.ctx.arc(p.x, p.y, 5, 0, Math.PI*2);
+                this.ctx.fill();
+            }
         }
 
         // Player
@@ -242,7 +237,7 @@ class Game {
         this.ctx.font = '12px monospace';
         this.ctx.fillText(`Pos: ${this.player.x.toFixed(1)}, ${this.player.y.toFixed(1)}`, 10, 20);
         this.ctx.fillText(`Event: ${this.lastEvent}`, 10, 40);
-        this.ctx.fillText(`Controls: WASD/Arrow/Touch Joystick. Shift/DoubleTap: Sprint. Pinch/Rotate.`, 10, 60);
+        this.ctx.fillText(`Controls: WASD/Joystick (50ms). Tap (Smart Move).`, 10, 60);
     }
 
     loop() {
