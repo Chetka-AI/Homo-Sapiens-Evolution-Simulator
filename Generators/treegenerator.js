@@ -11,28 +11,28 @@ class TreeGenerator {
             'pine': {
                 trunkColor: '#3e2723',
                 // Iglaste: Korona to stos trójkątów
-                layerCountMin: 4,
-                layerCountMax: 7,
-                baseRadius: 200, // 2m szerokości u podstawy korony
-                topRadius: 50,
+                layerCountMin: 2,
+                layerCountMax: 4,
+                baseRadius: 150, // 1.5m szerokości u podstawy korony
+                topRadius: 40,
                 layerHeight: 60, // Odstęp między piętrami
                 colors: ['#2d6a4f', '#1b4332', '#40916c'] // Różne odcienie zieleni
             },
             'oak': {
                 trunkColor: '#4e342e',
                 // Liściaste: Korona to wielkie bloby
-                blobCount: 15,
-                crownRadiusMin: 200, // min 2m
-                crownRadiusMax: 600, // max 6m (do 8m z losowością)
-                branchCount: 8,
+                blobCount: 7,
+                crownRadiusMin: 150, // min 1.5m
+                crownRadiusMax: 300, // max 3m
+                branchCount: 4,
                 colors: ['#588157', '#3a5a40', '#a3b18a'] // Odcienie dębu
             },
             'birch': {
                 trunkColor: '#d7ccc8',
-                blobCount: 12,
-                crownRadiusMin: 180,
-                crownRadiusMax: 400,
-                branchCount: 6,
+                blobCount: 6,
+                crownRadiusMin: 120,
+                crownRadiusMax: 250,
+                branchCount: 3,
                 colors: ['#a3b18a', '#dad7cd', '#8f9e83']
             }
         };
