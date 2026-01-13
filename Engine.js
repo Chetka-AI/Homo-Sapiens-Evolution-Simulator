@@ -532,7 +532,8 @@ class GameEngine {
         // 2. Target Marker
         this.drawTargetMarker(ctx);
 
-        // 3. Prepare Render List (Objects + Player)
+        // 3. Prepare Render Lists
+        const groundList = [];
         const renderList = [];
         const tileSize = world.tileSize;
         const chunkSize = world.chunkSize;
@@ -544,16 +545,27 @@ class GameEngine {
              for(let obj of chunk.objects) {
                  const px = chunkPxX + obj.x * tileSize;
                  const py = chunkPxY + obj.y * tileSize;
-                 renderList.push({ type: 'object', y: py, obj: obj, px: px, py: py });
+
+                 // Separate ground objects (decorations, non-solid rocks) from solid objects (trees, big rocks)
+                 if (!obj.isSolid) {
+                     groundList.push({ obj: obj, px: px, py: py });
+                 } else {
+                     renderList.push({ type: 'object', y: py, obj: obj, px: px, py: py });
+                 }
              }
         }
 
         renderList.push({ type: 'player', y: state.player.y, player: state.player });
 
-        // Sort by Y
+        // Sort renderList by Y
         renderList.sort((a, b) => a.y - b.y);
 
-        // Draw sorted
+        // Draw Ground Objects (always below player/solids)
+        for (const item of groundList) {
+            this.drawObjectBase(ctx, item.obj, item.px, item.py);
+        }
+
+        // Draw Sorted Objects & Player
         for (const item of renderList) {
             if (item.type === 'object') {
                 this.drawObjectBase(ctx, item.obj, item.px, item.py);
